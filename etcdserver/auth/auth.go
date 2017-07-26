@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/Godeps/_workspace/src/github.com/coreos/pkg/capnslog"
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/crypto/bcrypt"
+	// "github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/crypto/bcrypt"
 	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
 	etcderr "github.com/coreos/etcd/error"
 	"github.com/coreos/etcd/etcdserver"
@@ -67,6 +67,38 @@ var guestRole = Role{
 			Write: []string{"/*"},
 		},
 	},
+}
+
+type safeUserAll struct {
+	sync.Mutex
+	M map[string]User
+}
+
+var userAll *safeUserAll
+
+func (s *safeUserAll) GetUser(name string) (User, bool) {
+	s.Lock()
+	defer s.Unlock()
+	user, ok := s.M[name]
+	return user, ok
+}
+
+func (s *safeUserAll) PutUser(name string, user User) {
+	s.Lock()
+	defer s.Unlock()
+	s.M[name] = user
+}
+
+func (s *safeUserAll) DelUser(name string) {
+	s.Lock()
+	defer s.Unlock()
+	if _, ok := s.M[name]; ok {
+		delete(s.M, name)
+	}
+}
+
+func init() {
+	userAll = &safeUserAll{M: make(map[string]User)}
 }
 
 type doer interface {
@@ -166,6 +198,11 @@ func (s *store) AllUsers() ([]string, error) {
 }
 
 func (s *store) GetUser(name string) (User, error) {
+
+	if user, ok := userAll.GetUser(name); ok {
+		return user, nil
+	}
+
 	resp, err := s.requestResource("/users/"+name, false)
 	if err != nil {
 		if e, ok := err.(*etcderr.Error); ok {
@@ -184,6 +221,9 @@ func (s *store) GetUser(name string) (User, error) {
 	if u.User == "root" {
 		u = attachRootRole(u)
 	}
+
+	userAll.PutUser(name, u)
+
 	return u, nil
 }
 
@@ -209,6 +249,9 @@ func (s *store) CreateUser(user User) (User, error) {
 	if err == nil {
 		plog.Noticef("created user %s", user.User)
 	}
+
+	userAll.PutUser(user.User, u)
+
 	return u, err
 }
 
@@ -216,13 +259,13 @@ func (s *store) createUserInternal(user User) (User, error) {
 	if user.Password == "" {
 		return user, authErr(http.StatusBadRequest, "Cannot create user %s with an empty password", user.User)
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return user, err
-	}
-	user.Password = string(hash)
+	// hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	// if err != nil {
+	// return user, err
+	// }
+	// user.Password = string(hash)
 
-	_, err = s.createResource("/users/"+user.User, user)
+	_, err := s.createResource("/users/"+user.User, user)
 	if err != nil {
 		if e, ok := err.(*etcderr.Error); ok {
 			if e.ErrorCode == etcderr.EcodeNodeExist {
@@ -230,6 +273,7 @@ func (s *store) createUserInternal(user User) (User, error) {
 			}
 		}
 	}
+
 	return user, err
 }
 
@@ -247,6 +291,9 @@ func (s *store) DeleteUser(name string) error {
 		return err
 	}
 	plog.Noticef("deleted user %s", name)
+
+	userAll.DelUser(name)
+
 	return nil
 }
 
@@ -443,11 +490,12 @@ func (u User) merge(n User) (User, error) {
 	}
 	out.User = u.User
 	if n.Password != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(n.Password), bcrypt.DefaultCost)
-		if err != nil {
-			return User{}, err
-		}
-		out.Password = string(hash)
+		// hash, err := bcrypt.GenerateFromPassword([]byte(n.Password), bcrypt.DefaultCost)
+		// if err != nil {
+		// 	return User{}, err
+		// }
+		// out.Password = string(hash)
+		out.Password = n.Password
 	} else {
 		out.Password = u.Password
 	}
@@ -472,8 +520,9 @@ func (u User) merge(n User) (User, error) {
 }
 
 func (u User) CheckPassword(password string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
-	return err == nil
+	// err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
+	// return err == nil
+	return u.Password == password
 }
 
 // merge for a role works the same as User above -- atomic Role application to

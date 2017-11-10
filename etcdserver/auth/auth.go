@@ -318,6 +318,8 @@ func (s *store) UpdateUser(user User) (User, error) {
 	if err == nil {
 		plog.Noticef("updated user %s", user.User)
 	}
+
+	userAll.PutUser(user.User, newUser)
 	return newUser, err
 }
 

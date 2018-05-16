@@ -22,5 +22,6 @@ else
 fi
 
 # Static compilation is useful when etcd is run in a container
+#CC=/usr/bin/x86_64-w64-mingw32-gcc GOGCCFLAGS="-fPIC -mthreads  -fmessage-length=0 -fdebug-prefix-map=/tmp/go-build154058316=/tmp/go-build"  CGO_ENABLED=1 go build -a -ldflags "-s -X ${REPO_PATH}/version.GitSHA${LINK_OPERATOR}${GIT_SHA}" -o bin/etcd ${REPO_PATH}
 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s -X ${REPO_PATH}/version.GitSHA${LINK_OPERATOR}${GIT_SHA}" -o bin/etcd ${REPO_PATH}
 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s" -o bin/etcdctl ${REPO_PATH}/etcdctl

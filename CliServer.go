@@ -5209,6 +5209,12 @@ func (this *CliServer) DisableUser(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (this *CliServer) GetIp(w http.ResponseWriter, r *http.Request) {
+
+    ip := this.util.GetClientIp(r)
+    w.Write([]byte(ip))
+}
+
 func (this *CliServer) Heartbeat(w http.ResponseWriter, r *http.Request) {
 
 	r.ParseForm()
@@ -6320,6 +6326,7 @@ func (this *CliServer) Main() {
 	http.HandleFunc("/cli/enableuser", cli.EnableUser)
 	http.HandleFunc("/cli/disableuser", cli.DisableUser)
 	http.HandleFunc("/cli/help", cli.Help)
+    http.HandleFunc("/cli/ip", cli.GetIp)
 	http.HandleFunc("/cli/gen_google_auth", cli.GenGoogleAuth)
 	http.HandleFunc("/cli/verify_google_code", cli.VerifyGoogleCode)
 	http.HandleFunc("/cli/google_code_sync", cli.GoogleCodeSync)

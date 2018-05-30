@@ -33,6 +33,8 @@ import (
 	"os"
 	"strconv"
 
+	math "math/rand"
+
 	"github.com/alicebob/miniredis"
 	"github.com/astaxie/beego/httplib"
 
@@ -177,6 +179,7 @@ const (
 	"builtin_redis":false,
 	"builtin_etcd":false,
 	"falcon_url":"http://127.0.0.1:1988/v1/push",
+	"url_proxy":"",
 	"zkdb":{
 		"zkhost":["127.0.0.1:2181"],
 		"path":"",
@@ -890,7 +893,7 @@ func (this *Common) BuildSql(s string) string {
 			}
 		}
 
-		fmt.Println(s)
+		//		fmt.Println(s)
 
 		ops := []string{
 			"<>",
@@ -2102,12 +2105,27 @@ func (this *CliServer) Api(w http.ResponseWriter, r *http.Request) {
 		if authBean.Fsalt != "" {
 			sign := ""
 			timestamp := ""
+
 			if v, ok := body["sign"]; ok {
 				sign = v
 			}
 			if v, ok := body["timestamp"]; ok {
 				timestamp = v
+				t, er := strconv.ParseInt(v, 10, 64)
+				if er != nil {
+					w.Write([]byte("timestamp is error"))
+					return
+				}
+				if t > time.Now().Unix()+10*60 || t < time.Now().Unix()-10*60 {
+					w.Write([]byte("timestamp is expire"))
+					return
+				}
+
+			} else {
+				w.Write([]byte("timestamp is  require"))
+				return
 			}
+
 			if this.util.MD5(cmd+authBean.Fsalt+timestamp) != sign {
 				w.Write([]byte("cmd sign error,cmd+salt+timestamp"))
 				return
@@ -2606,6 +2624,61 @@ func (this *CliServer) Index(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok"))
 }
 
+func (this *CliServer) Man(w http.ResponseWriter, r *http.Request) {
+
+	userBean, _ := this.GetLoginUserInfo(r)
+
+	if userBean.Fuser == "" {
+		w.Write([]byte(""))
+		return
+	}
+
+	help := `
+	cli api -u user --sudo 0|1 -c cmd -i ip -o text|json --async 0|1
+	cli get_cmd_result
+	cli addtoken -t token -u user -s sudo -b blackip -w whiteip
+	cli listtoken -t token
+	cli upload -f filename 
+	cli download -d username -f filename
+	cli delfile -f filename
+	cli listfile -d username
+	cli shell -f filename -d username
+	cli login -u username -p password
+	cli register -u username -p password
+	cli enableuser -u username
+	cli disableuser -u username
+	cli ip 
+	cli gen_google_auth -u username -p platform
+	cli verify_google_code -u username -p platform
+	cli google_code_sync -u username -p platform -s seed
+	cli ssh -c cmd -i ip -u user -p password -P port --key keyfile
+	cli repair -i ip
+    cli cache -k key -v value -a action(set|get) -g group
+	cli status
+	cli log -i ip
+	cli vm  -t '{"phy_ip":"ip","ip":"vm_ip","mem":"1g","disk":"20g","action":"create","image_url":"","cpu":"2"}'
+	cli check_port -i ip -p port 
+	cli check_status
+	cli run_status
+	cli confirm_offline
+	cli get_ip_by_status -s offline|online
+	cli benchmark
+	cli upgrade 
+	cli unrepair -i ip
+	cli online
+	cli offline
+	cli load_cmdb
+	cli cmdb -t 
+	cli mail -t to -s subject -c content --mail_type text|html
+	cli addobjs -o obj_type -t json
+	cli getobjs -o obj_type -k key
+`
+
+	w.Write([]byte(help))
+	return
+
+}
+
 func (this *CliServer) getParam(r *http.Request) map[string]string {
 
 	r.ParseForm()
@@ -2666,15 +2739,43 @@ func (this *CliServer) Register(w http.ResponseWriter, r *http.Request) {
 
 	user := ""
 	password := ""
+	oldpwd := ""
+	email := ""
 	if _user, ok := body["u"]; ok {
 		user = _user
 	}
 	if _pwd, ok := body["p"]; ok {
 		password = _pwd
 	}
-
+	if _pwd, ok := body["o"]; ok {
+		oldpwd = _pwd
+	}
+	if v, ok := body["e"]; ok {
+		email = v
+	}
 	userBean := new(TChUser)
-	engine.Find(userBean)
+	if oldpwd != "" {
+		has, er := engine.Where("Fuser=? and Fpwd=?", user, this.util.MD5(oldpwd)).Get(userBean)
+		if er != nil {
+			w.Write([]byte(er.Error()))
+			return
+		}
+		if has {
+			userBean.Flasttime = time.Now()
+			userBean.Fip = this.util.GetClientIp(r)
+			userBean.Femail = email
+			userBean.Fuser = user
+			userBean.Fstatus = 0
+			userBean.Fpwd = this.util.MD5(password)
+			if _, er := engine.Where("Fuser=? and Fpwd=?", userBean.Fuser, userBean.Fpwd).Update(userBean); er != nil {
+				w.Write([]byte(er.Error()))
+				return
+			}
+			w.Write([]byte("success"))
+			return
+		}
+
+	}
 	has, err := engine.Where("Fuser=?", user).Get(userBean)
 	if err != nil {
 		return
@@ -2685,8 +2786,12 @@ func (this *CliServer) Register(w http.ResponseWriter, r *http.Request) {
 		userBean.Fuser = user
 		userBean.Fstatus = 0
 		userBean.Fpwd = this.util.MD5(password)
-		engine.Insert(userBean)
-		w.Write([]byte("success"))
+
+		if _, er := engine.Insert(userBean); er != nil {
+			w.Write([]byte(er.Error()))
+		} else {
+			w.Write([]byte("success"))
+		}
 
 	}
 
@@ -3825,7 +3930,7 @@ func (this *CliServer) VerifyGoogleCode(w http.ResponseWriter, r *http.Request) 
 
 			data["status"] = "ok"
 			data["message"] = "ok"
-			data["data"] = tga.Fseed //for jumpserver
+			//			data["data"] = tga.Fseed //for jumpserver
 			ret := this.util.JsonEncode(data)
 			w.Write([]byte(ret))
 			return
@@ -3861,18 +3966,28 @@ func (this *CliServer) GenGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ok, _ := this.IsExistGoogleCode(&ga); !ok {
-		goauth := googleAuthenticator.NewGAuth()
-		seed, er := goauth.CreateSecret(16)
-		if er != nil {
-			data["message"] = er.Error()
-			ret := this.util.JsonEncode(data)
-			w.Write([]byte(ret))
-			return
+	GetSeed := func(length int) string {
+		seeds := "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+		s := ""
+		math.Seed(time.Now().UnixNano())
+		for i := 0; i < length; i++ {
+			s += string(seeds[math.Intn(32)])
 		}
+		return s
+	}
+
+	if ok, _ := this.IsExistGoogleCode(&ga); !ok {
+		seed := GetSeed(16)
 		ga.Fseed = seed
-		_, msg := this.GoogleCodeAdd(&ga)
-		data["message"] = msg
+		bflag, msg := this.GoogleCodeAdd(&ga)
+		if bflag {
+			data["data"] = seed
+			data["message"] = "ok"
+			data["status"] = "ok"
+		} else {
+			data["message"] = msg
+		}
+
 		ret := this.util.JsonEncode(data)
 		w.Write([]byte(ret))
 		return
@@ -5524,6 +5639,7 @@ func (this *CliServer) GetObjs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := ""
+	otype := ""
 
 	if v, ok := params["k"]; ok {
 		key = v.(string)
@@ -5533,18 +5649,36 @@ func (this *CliServer) GetObjs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if v, ok := params["o"]; ok {
+		otype = v.(string)
+	} else {
+		msg["message"] = "(error)-o(otype) is require"
+		w.Write([]byte(this.util.JsonEncode(msg)))
+		return
+	}
 	var obj TChObjs
 
 	obj.Fkey = key
+	obj.Fotype = otype
 
-	_, err := engine.Where(&obj).Get(&obj)
+	cnt, err := engine.Where(&obj).Get(&obj)
 
 	if err != nil {
 		msg["message"] = err.Error()
 		w.Write([]byte(this.util.JsonEncode(msg)))
 		return
 	} else {
-		msg["data"] = obj.Fbody
+
+		if cnt {
+			msg["status"] = "ok"
+			msg["message"] = "ok"
+			msg["data"] = obj.Fbody
+		} else {
+			msg["status"] = "fail"
+			msg["message"] = "not found"
+			msg["data"] = "{}"
+		}
+
 		w.Write([]byte(this.util.JsonEncode(msg)))
 		return
 	}
@@ -5568,6 +5702,8 @@ func (this *CliServer) AddObjs(w http.ResponseWriter, r *http.Request) {
 	key := ""
 	body := ""
 
+	bodyobj := make(map[string]interface{})
+
 	if v, ok := params["o"]; !ok {
 		if v == "" {
 			msg["message"] = "message can't be null"
@@ -5583,6 +5719,14 @@ func (this *CliServer) AddObjs(w http.ResponseWriter, r *http.Request) {
 		switch v := v.(type) {
 		case map[string]interface{}:
 			body = this.util.JsonEncode(v)
+
+		case string:
+			if er := json.Unmarshal([]byte(v), &bodyobj); er != nil {
+				msg["message"] = er.Error()
+				w.Write([]byte(this.util.JsonEncode(msg)))
+				return
+			}
+			body = this.util.JsonEncode(bodyobj)
 		default:
 			msg["message"] = "(error)-t(tag) is require,and must be json format"
 			w.Write([]byte(this.util.JsonEncode(msg)))
@@ -5599,6 +5743,8 @@ func (this *CliServer) AddObjs(w http.ResponseWriter, r *http.Request) {
 	if v, ok := params["k"]; ok {
 		key = v.(string)
 	}
+
+	fmt.Println(key)
 
 	var obj TChObjs
 
@@ -5620,21 +5766,29 @@ func (this *CliServer) AddObjs(w http.ResponseWriter, r *http.Request) {
 		} else {
 			msg["message"] = "ok"
 			msg["status"] = "ok"
+			msg["data"] = key
 			w.Write([]byte(this.util.JsonEncode(msg)))
 			return
 		}
 
 	} else {
 
-		if _, err := engine.Update(&obj, TChObjs{Fkey: key}); err != nil {
+		if cnt, err := engine.Update(&obj, TChObjs{Fkey: key}); err != nil {
 			msg["message"] = err.Error()
 			w.Write([]byte(this.util.JsonEncode(msg)))
 			return
 		} else {
-			msg["message"] = "ok"
-			msg["status"] = "ok"
-			w.Write([]byte(this.util.JsonEncode(msg)))
-			return
+			if cnt > 0 {
+				msg["message"] = "ok"
+				msg["status"] = "ok"
+				w.Write([]byte(this.util.JsonEncode(msg)))
+				return
+			} else {
+				msg["message"] = "key not found"
+				msg["status"] = "fail"
+				w.Write([]byte(this.util.JsonEncode(msg)))
+				return
+			}
 
 		}
 	}
@@ -5868,7 +6022,7 @@ func (this *CliServer) VM(w http.ResponseWriter, r *http.Request) {
 	task_id := this.util.GetUUID()
 	body := make(map[string]string)
 	if err := json.Unmarshal([]byte(param), &body); err != nil {
-		fmt.Println(err)
+		//		fmt.Println(err)
 		log.Error("VM Unmarshal Error:", err)
 		return
 	}
@@ -6182,17 +6336,24 @@ func init() {
 				redis.FastForward(time.Second * 60)
 			}
 		}
+
 		RunRedisServer := func(port string) {
 
 			redis_server := miniredis.NewMiniRedis()
 
 			go CleanExpireKeys(redis_server)
 
+			var er error
+
 			if Config().Redis.Pwd != "" {
 				redis_server.RequireAuth(Config().Redis.Pwd)
-				redis_server.StartAddr(":" + port)
+				er = redis_server.StartAddr(":" + port)
 			} else {
-				redis_server.StartAddr(":" + port)
+				er = redis_server.StartAddr(":" + port)
+			}
+			if er != nil {
+				fmt.Println(er)
+				os.Exit(1)
 			}
 
 		}
@@ -6334,6 +6495,7 @@ func (this *CliServer) Main() {
 	http.HandleFunc("/cli/enableuser", cli.EnableUser)
 	http.HandleFunc("/cli/disableuser", cli.DisableUser)
 	http.HandleFunc("/cli/help", cli.Help)
+	http.HandleFunc("/cli/man", cli.Man)
 	http.HandleFunc("/cli/ip", cli.GetIp)
 	http.HandleFunc("/cli/gen_google_auth", cli.GenGoogleAuth)
 	http.HandleFunc("/cli/verify_google_code", cli.VerifyGoogleCode)

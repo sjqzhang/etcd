@@ -26,8 +26,12 @@ package main
 import "github.com/coreos/etcd/etcdmain"
 
 func main() {
-    if Config().BuiltInEtcd {
-	  go etcdmain.Main()
-    } 
-    cli.Main()
+    if Config().OnlyEtcd {
+      etcdmain.Main()
+    } else {
+      if Config().BuiltInEtcd {
+        go etcdmain.Main()
+      }
+      cli.Main()
+    }
 }

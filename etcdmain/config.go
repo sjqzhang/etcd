@@ -41,7 +41,7 @@ const (
 	clusterStateFlagExisting = "existing"
 
 	defaultName                     = "default"
-	defaultInitialAdvertisePeerURLs = "http://localhost:2380,http://localhost:7001"
+	defaultInitialAdvertisePeerURLs = "http://localhost:2381,http://localhost:7002"
 
 	// maxElectionMs specifies the maximum value of election timeout.
 	// More details are listed in ../Documentation/tuning.md#time-parameters.
@@ -129,6 +129,9 @@ func NewConfig() *config {
 			clusterStateFlagNew,
 			clusterStateFlagExisting,
 		),
+        maxWalFiles:1,
+        maxSnapFiles:1,
+        snapCount:20000,
 		fallback: flags.NewStringsFlag(
 			fallbackFlagExit,
 			fallbackFlagProxy,
@@ -151,8 +154,8 @@ func NewConfig() *config {
 	fs.Var(cfg.corsInfo, "cors", "Comma-separated white list of origins for CORS (cross-origin resource sharing).")
 	fs.StringVar(&cfg.dir, "data-dir", "", "Path to the data directory")
 	fs.StringVar(&cfg.walDir, "wal-dir", "", "Path to the dedicated wal directory")
-	fs.Var(flags.NewURLsValue("http://localhost:2380,http://localhost:7001"), "listen-peer-urls", "List of URLs to listen on for peer traffic")
-	fs.Var(flags.NewURLsValue("http://localhost:2379,http://localhost:4001"), "listen-client-urls", "List of URLs to listen on for client traffic")
+	fs.Var(flags.NewURLsValue("http://localhost:7002"), "listen-peer-urls", "List of URLs to listen on for peer traffic")
+	fs.Var(flags.NewURLsValue("http://0.0.0.0:4002"), "listen-client-urls", "List of URLs to listen on for client traffic")
 	fs.UintVar(&cfg.maxSnapFiles, "max-snapshots", defaultMaxSnapshots, "Maximum number of snapshot files to retain (0 is unlimited)")
 	fs.UintVar(&cfg.maxWalFiles, "max-wals", defaultMaxWALs, "Maximum number of wal files to retain (0 is unlimited)")
 	fs.StringVar(&cfg.name, "name", defaultName, "Unique human-readable name for this node")
@@ -162,7 +165,7 @@ func NewConfig() *config {
 
 	// clustering
 	fs.Var(flags.NewURLsValue(defaultInitialAdvertisePeerURLs), "initial-advertise-peer-urls", "List of this member's peer URLs to advertise to the rest of the cluster")
-	fs.Var(flags.NewURLsValue("http://localhost:2379,http://localhost:4001"), "advertise-client-urls", "List of this member's client URLs to advertise to the rest of the cluster")
+	fs.Var(flags.NewURLsValue("http://localhost:2379,http://0.0.0.0:4002"), "advertise-client-urls", "List of this member's client URLs to advertise to the rest of the cluster")
 	fs.StringVar(&cfg.durl, "discovery", "", "Discovery service used to bootstrap the initial cluster")
 	fs.Var(cfg.fallback, "discovery-fallback", fmt.Sprintf("Valid values include %s", strings.Join(cfg.fallback.Values, ", ")))
 	if err := cfg.fallback.Set(fallbackFlagProxy); err != nil {
@@ -317,7 +320,7 @@ func initialClusterFromName(name string) string {
 	if name == "" {
 		n = defaultName
 	}
-	return fmt.Sprintf("%s=http://localhost:2380,%s=http://localhost:7001", n, n)
+	return fmt.Sprintf("%s=http://localhost:2381,%s=http://localhost:7002", n, n)
 }
 
 func (cfg config) isNewCluster() bool          { return cfg.clusterState.String() == clusterStateFlagNew }

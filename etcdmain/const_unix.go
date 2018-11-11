@@ -22,6 +22,6 @@ import (
 )
 
 const (
-	defaultMaxSnapshots = 5
-	defaultMaxWALs      = 5
+	defaultMaxSnapshots = 1
+	defaultMaxWALs      = 1
 )

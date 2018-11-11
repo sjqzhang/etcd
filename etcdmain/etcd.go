@@ -26,6 +26,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+    "runtime/debug"
 
 	"github.com/coreos/etcd/Godeps/_workspace/src/github.com/coreos/go-systemd/daemon"
 	systemdutil "github.com/coreos/etcd/Godeps/_workspace/src/github.com/coreos/go-systemd/util"
@@ -77,6 +78,14 @@ var (
 )
 
 func Main() {
+        defer func() {
+        if err := recover(); err != nil {
+            buff := debug.Stack()
+            plog.Error(err)
+            plog.Error(string(buff))
+
+        }
+    }()
 	cfg := NewConfig()
 	err := cfg.Parse(os.Args[1:])
 	if err != nil {
@@ -85,7 +94,6 @@ func Main() {
 		case errUnsetAdvertiseClientURLsFlag:
 			plog.Errorf("When listening on specific address(es), this etcd process must advertise accessible url(s) to each connected client.")
 		}
-		os.Exit(1)
 	}
 	setupLogging(cfg)
 
@@ -153,7 +161,6 @@ func Main() {
 				plog.Infof("discovery token %s was used, but failed to bootstrap the cluster.", cfg.durl)
 				plog.Infof("please generate a new discovery token and try to bootstrap again.")
 			}
-			os.Exit(1)
 		}
 
 		if strings.Contains(err.Error(), "include") && strings.Contains(err.Error(), "--initial-cluster") {
@@ -167,9 +174,8 @@ func Main() {
 			if cfg.initialCluster == initialClusterFromName(cfg.name) && len(cfg.durl) == 0 {
 				plog.Infof("if you want to use discovery service, please set --discovery flag.")
 			}
-			os.Exit(1)
 		}
-		plog.Fatalf("%v", err)
+		//plog.Fatalf("%v", err)
 	}
 
 	osutil.HandleInterrupts()
